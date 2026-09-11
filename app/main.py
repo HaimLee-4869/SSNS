@@ -59,8 +59,34 @@ async def create_post_from_voice(audio: UploadFile = File(...)) -> dict:
 
 
 @app.get("/api/v1/posts")
-def get_posts() -> list[dict]:
-    return db.list_posts()
+def get_posts(author: str | None = None) -> list[dict]:
+    return db.list_posts(author=author)
+
+
+@app.get("/api/v1/posts/by-author")
+def get_post_by_author(name: str) -> dict:
+    post = db.get_latest_post_by_author(name)
+    if post is None:
+        raise HTTPException(status_code=404, detail=f"'{name}'님의 소식을 찾을 수 없어요.")
+    return post
+
+
+@app.post("/api/v1/voice/intent")
+async def classify_voice_intent(audio: UploadFile = File(...)) -> dict:
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY가 설정되지 않았습니다.")
+
+    audio_bytes = await audio.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="빈 오디오 파일입니다.")
+
+    try:
+        transcript = openai_client.transcribe_audio(audio_bytes, audio.filename or "voice.webm")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"음성 인식 실패: {exc}") from exc
+
+    intent_result = agent.classify_intent(transcript)
+    return {"transcript": transcript, **intent_result}
 
 
 @app.get("/api/v1/status")
